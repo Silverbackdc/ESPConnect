@@ -98,11 +98,15 @@
             {{ t('alerts.serialMonitorClosed') }}
           </v-alert>
           <v-window v-model="activeTab" class="app-tab-content">
-            <!-- SmartBed fork addition: guided firmware install (landing tab) -->
-            <v-window-item value="smartbed">
+            <!-- SmartBed fork addition: guided firmware install (landing tab).
+                 `eager` keeps the component mounted across tab switches so staff
+                 selections survive; the progress dialog binds its own dedicated
+                 state (smartbedProgressDialog) so the upstream Flash tab cannot
+                 pop this teleported dialog. -->
+            <v-window-item value="smartbed" eager>
               <SmartBedInstallTab :connected="connected"
                 :busy="busy || maintenanceBusy || maintenanceNavigationLocked" :flash-in-progress="flashInProgress"
-                :progress-dialog="flashProgressDialog" :status="smartbedInstallStatus"
+                :progress-dialog="smartbedProgressDialog" :status="smartbedInstallStatus"
                 :status-type="smartbedInstallStatusType" @install="installSmartBedFirmware"
                 @cancel-flash="handleCancelFlash" />
             </v-window-item>
@@ -6038,7 +6042,8 @@ async function disconnectTransport() {
     resetNvsState();
     currentBaud.value = DEFAULT_FLASH_BAUD;
     baudChangeBusy.value = false;
-    activeTab.value = 'info';
+    // SmartBed fork addition: don't yank staff off the guided install tab.
+    if (activeTab.value !== 'smartbed') activeTab.value = 'info';
   }
 }
 
@@ -6408,7 +6413,8 @@ async function connect() {
       factGroups,
     };
     chipDetails.value = details;
-    activeTab.value = 'info';
+    // SmartBed fork addition: don't yank staff off the guided install tab.
+    if (activeTab.value !== 'smartbed') activeTab.value = 'info';
     appendLog(
       `Loaded device details: ${details.name}, ${facts.length} facts.`,
       '[ESPConnect-Debug]'
@@ -6686,6 +6692,21 @@ const SMARTBED_OTA_DATA_SIZE = 0x2000;
 const smartbedInstallStatus = ref<string | null>(null);
 const smartbedInstallStatusType = ref<AlertType>('info');
 
+// Dedicated progress-dialog state for the guided install. The upstream Flash
+// tab keeps flashProgressDialog: the smartbed window-item is eager-mounted, so
+// sharing one state would pop BOTH teleported v-dialogs at once whenever
+// either flow flashes. flashInProgress/busy/flashCancelRequested stay shared -
+// they are the mutual-exclusion mechanism between the two flows.
+const smartbedProgressDialog = reactive<ProgressDialogState>({
+  visible: false,
+  value: 0,
+  label: '',
+  indeterminate: false,
+});
+
+// First byte of every valid ESP-IDF bootloader/app image.
+const ESP_IMAGE_MAGIC = 0xe9;
+
 type SmartBedPart = {
   labelKey: string;
   offset: number;
@@ -6693,9 +6714,15 @@ type SmartBedPart = {
 };
 
 // Fetch one firmware part via the proxy. Optional parts return null on 404;
-// required parts throw with a clear message (raw error text stays English, the
-// UI wraps it via smartbedInstall.status.failed).
-async function fetchSmartBedBinary(file: string, optional: boolean): Promise<Uint8Array | null> {
+// required parts throw with a clear message (the UI wraps it via
+// smartbedInstall.status.failed). Sanity checks guard against an expired
+// Cloudflare Access session, where the login page comes back as a redirected
+// 200 text/html - flashing that to 0x0 would brick the board.
+async function fetchSmartBedBinary(
+  file: string,
+  optional: boolean,
+  expectEspImage = false,
+): Promise<Uint8Array | null> {
   const response = await fetch(`/api/stable/${file}`, { cache: 'no-store' });
   if (response.status === 404) {
     if (optional) {
@@ -6706,7 +6733,18 @@ async function fetchSmartBedBinary(file: string, optional: boolean): Promise<Uin
   if (!response.ok) {
     throw new Error(`Download failed for ${file} (HTTP ${response.status}).`);
   }
-  return new Uint8Array(await response.arrayBuffer());
+  const contentType = (response.headers.get('content-type') ?? '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (response.redirected || contentType !== 'application/octet-stream') {
+    throw new Error(t('smartbedInstall.errors.notFirmware', { file }));
+  }
+  const data = new Uint8Array(await response.arrayBuffer());
+  if (expectEspImage && data[0] !== ESP_IMAGE_MAGIC) {
+    throw new Error(t('smartbedInstall.errors.badImage', { file }));
+  }
+  return data;
 }
 
 // Download all four firmware parts, then erase (optionally) and flash them
@@ -6741,10 +6779,10 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
   busy.value = true;
   flashProgress.value = 0;
   flashCancelRequested.value = false;
-  flashProgressDialog.visible = true;
-  flashProgressDialog.value = 0;
-  flashProgressDialog.indeterminate = true;
-  flashProgressDialog.label = t('smartbedInstall.progress.preparing');
+  smartbedProgressDialog.visible = true;
+  smartbedProgressDialog.value = 0;
+  smartbedProgressDialog.indeterminate = true;
+  smartbedProgressDialog.label = t('smartbedInstall.progress.preparing');
   smartbedInstallStatus.value = null;
   smartbedInstallStatusType.value = 'info';
 
@@ -6759,31 +6797,38 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         file: `bootloader-${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.bootloader,
         optional: false,
+        expectEspImage: true,
       },
       {
         labelKey: 'smartbedInstall.parts.partitionTable',
         file: `partition-table-${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.partitionTable,
         optional: false,
+        expectEspImage: false,
       },
       {
         labelKey: 'smartbedInstall.parts.otaData',
         file: `ota-data-${request.version}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.otaData,
         optional: true,
+        expectEspImage: false,
       },
       {
         labelKey: 'smartbedInstall.parts.application',
         file: `${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.application,
         optional: false,
+        expectEspImage: true,
       },
     ];
 
     const parts: SmartBedPart[] = [];
     for (const spec of partSpecs) {
-      flashProgressDialog.label = t('smartbedInstall.progress.downloading', { file: spec.file });
-      const data = await fetchSmartBedBinary(spec.file, spec.optional);
+      if (flashCancelRequested.value) {
+        throw new Error('Flash cancelled by user');
+      }
+      smartbedProgressDialog.label = t('smartbedInstall.progress.downloading', { file: spec.file });
+      const data = await fetchSmartBedBinary(spec.file, spec.optional, spec.expectEspImage);
       if (data) {
         parts.push({ labelKey: spec.labelKey, offset: spec.offset, data });
       } else {
@@ -6810,13 +6855,17 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
 
     await runLoaderOperation(async () => {
       const eraseFlashFn = (loaderInstance as ESPLoader & { eraseFlash?: () => Promise<void> }).eraseFlash;
-      if (request.erase && typeof eraseFlashFn === 'function') {
-        flashProgressDialog.indeterminate = true;
-        flashProgressDialog.label = t('smartbedInstall.progress.erasing');
+      if (request.erase) {
+        // The confirm dialog promised a full erase - never degrade silently.
+        if (typeof eraseFlashFn !== 'function') {
+          throw new Error(t('smartbedInstall.errors.eraseUnsupported'));
+        }
+        smartbedProgressDialog.indeterminate = true;
+        smartbedProgressDialog.label = t('smartbedInstall.progress.erasing');
         appendLog('Erasing entire flash before SmartBed install...');
         await eraseFlashFn.call(loaderInstance);
       }
-      flashProgressDialog.indeterminate = false;
+      smartbedProgressDialog.indeterminate = false;
 
       let flashedBytes = 0;
       for (const part of parts) {
@@ -6835,9 +6884,9 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
             const pct = totalBytes ? Math.floor((done / totalBytes) * 100) : 0;
             const clamped = Math.min(100, Math.max(0, pct));
             flashProgress.value = clamped;
-            flashProgressDialog.visible = true;
-            flashProgressDialog.value = clamped;
-            flashProgressDialog.label = t('smartbedInstall.progress.flashing', {
+            smartbedProgressDialog.visible = true;
+            smartbedProgressDialog.value = clamped;
+            smartbedProgressDialog.label = t('smartbedInstall.progress.flashing', {
               part: partLabel,
               written: done.toLocaleString(),
               total: totalBytes.toLocaleString(),
@@ -6849,8 +6898,8 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         flashedBytes += partSize;
       }
     });
-    flashProgressDialog.value = 100;
-    flashProgressDialog.label = t('smartbedInstall.progress.finalizing');
+    smartbedProgressDialog.value = 100;
+    smartbedProgressDialog.label = t('smartbedInstall.progress.finalizing');
     await esptoolClient.value?.syncWithStub();
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
     appendLog(`SmartBed install of ${firmwareLabel} complete in ${elapsed}s. Device rebooted.`);
@@ -6874,12 +6923,20 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
     flashProgress.value = 0;
     flashInProgress.value = false;
     flashCancelRequested.value = false;
-    flashProgressDialog.visible = false;
-    flashProgressDialog.value = 0;
-    flashProgressDialog.label = '';
-    flashProgressDialog.indeterminate = false;
+    smartbedProgressDialog.visible = false;
+    smartbedProgressDialog.value = 0;
+    smartbedProgressDialog.label = '';
+    smartbedProgressDialog.indeterminate = false;
     if (shouldRefreshPartitions) {
-      await refreshPartitionTable(loaderInstance);
+      // An unplugged/rebooting board must not leave `busy` wedged true.
+      try {
+        await refreshPartitionTable(loaderInstance);
+      } catch (error) {
+        appendLog(
+          `Partition table refresh after SmartBed install failed: ${formatErrorMessage(error)}`,
+          '[ESPConnect-Warn]',
+        );
+      }
     }
     busy.value = false;
   }
@@ -6914,6 +6971,11 @@ function resetMaintenanceState() {
   flashProgressDialog.value = 0;
   flashProgressDialog.label = '';
   flashProgressDialog.indeterminate = false;
+  // SmartBed fork addition: reset the dedicated install dialog alongside.
+  smartbedProgressDialog.visible = false;
+  smartbedProgressDialog.value = 0;
+  smartbedProgressDialog.label = '';
+  smartbedProgressDialog.indeterminate = false;
   flashCancelRequested.value = false;
   downloadProgress.visible = false;
   downloadProgress.value = 0;
@@ -7425,6 +7487,9 @@ function handleCancelFlash() {
   if (!flashCancelRequested.value) {
     flashCancelRequested.value = true;
     flashProgressDialog.label = 'Stopping flash...';
+    // SmartBed fork addition: mirror the stop feedback on the dedicated dialog
+    // (only the dialog belonging to the active flow is visible).
+    smartbedProgressDialog.label = t('smartbedInstall.progress.stopping');
     appendLog('Flash cancellation requested by user.', '[ESPConnect-Warn]');
   }
 }

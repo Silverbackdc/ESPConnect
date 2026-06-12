@@ -405,12 +405,21 @@ const en = {
       erasing: 'Erasing flash...',
       flashing: 'Flashing {part} - {written} of {total} bytes',
       finalizing: 'Finalizing install...',
+      stopping: 'Stopping install...',
       stop: 'Stop',
     },
     status: {
       success: 'Done — {firmware} installed in {elapsed}s. Device rebooted.',
       cancelled: 'Install cancelled.',
       failed: 'Install failed: {error}',
+    },
+    errors: {
+      notFirmware:
+        'The update server did not return firmware for {file} (it sent a sign-in or error page instead). Reload this page to renew your session, then try again.',
+      badImage:
+        '{file} is not a valid ESP firmware image (missing 0xE9 magic byte). Install aborted — nothing was written to the device.',
+      eraseUnsupported:
+        'Full flash erase is not supported by the connected loader. Install aborted — choose "Flash only" or reconnect and try again.',
     },
     parts: {
       bootloader: 'bootloader',
