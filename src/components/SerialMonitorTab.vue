@@ -691,7 +691,11 @@ onMounted(() => {
   --ansi-bg-107: #475569;
   border-radius: 12px;
   padding: 14px;
-  max-height: 420px;
+  /* SmartBed fork: fill the viewport (upstream capped the terminal at a fixed
+     420px, leaving dead space below on tall windows); 360px ≈ app bar + card
+     chrome + send-input row. 420px floor keeps small windows usable. */
+  height: calc(100vh - 360px);
+  min-height: 420px;
   overflow-y: auto;
   border: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
