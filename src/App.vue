@@ -15,16 +15,6 @@
           <v-list-item-title>{{ item.title }}</v-list-item-title>
         </v-list-item>
       </v-list>
-      <v-divider class="app-drawer__divider" />
-      <v-list density="comfortable">
-        <v-list-subheader class="app-drawer__label text-overline text-medium-emphasis">
-          {{ t('app.resourcesLabel') }}
-        </v-list-subheader>
-        <v-list-item v-for="link in resourceLinks" :key="link.href" :href="link.href" :prepend-icon="link.icon"
-          target="_blank" rel="noopener" class="app-drawer__list-item" rounded="lg">
-          <v-list-item-title>{{ link.title }}</v-list-item-title>
-        </v-list-item>
-      </v-list>
     </v-navigation-drawer>
     <v-app-bar app :elevation="8">
       <div class="status-actions">
@@ -4352,23 +4342,7 @@ watch(
   }
 );
 
-const resourceLinks = computed(() => [
-  {
-    title: t('resources.tutorial'),
-    href: 'https://youtu.be/-nhDKzBxHiI',
-    icon: 'mdi-youtube',
-  },
-  {
-    title: t('resources.buyCoffee'),
-    href: 'https://buymeacoffee.com/thelastoutpostworkshop',
-    icon: 'mdi-coffee',
-  },
-  {
-    title: t('resources.getHelp'),
-    href: 'https://github.com/thelastoutpostworkshop/ESPConnect',
-    icon: 'mdi-lifebuoy',
-  },
-]);
+// SmartBed fork: upstream's Resources drawer section (tutorial/donation/help links) removed
 const flashSizeBytes = ref<number | null>(null);
 
 const showBusyDialog = ref(false);
