@@ -5,6 +5,7 @@ const en = {
     resourcesLabel: 'Resources',
   },
   navigation: {
+    smartbedInstall: 'Install SmartBed Firmware',
     deviceInfo: 'Device Info',
     partitions: 'Partitions',
     apps: 'Apps',
@@ -129,6 +130,7 @@ const en = {
     fatfs: 'Connect to an ESP32 with a FATFS partition to use these tools.',
     apps: 'Connect to a device to inspect OTA application slots.',
     flash: 'Connect to your board to flash firmware or inspect registers.',
+    smartbedInstall: 'Connect a SmartBed controller board over USB to install firmware.',
   },
   deviceInfo: {
     summary: {
@@ -371,6 +373,50 @@ const en = {
       preparingDownload: 'Preparing download...',
       erasingFlash: 'Erasing flash...',
       stop: 'Stop',
+    },
+  },
+  smartbedInstall: {
+    title: 'Install SmartBed Firmware',
+    intro:
+      'Guided installer for SmartBed controller boards. Pick the bed manufacturer and firmware version, choose an action, then install over USB.',
+    manufacturerLabel: 'Bed manufacturer',
+    versionLabel: 'Firmware version',
+    latestSuffix: '(latest)',
+    refreshVersions: 'Refresh version list',
+    noVersions: 'No firmware versions available. Refresh to try again.',
+    versionsError: 'Could not load firmware versions: {error}',
+    actionLabel: 'Action',
+    actionErase: 'Erase + Flash — new board / clean install',
+    actionFlashOnly: 'Flash only — keeps WiFi & commissioning',
+    installButton: 'Install Firmware',
+    connectHint: 'Connect a device to enable installation.',
+    confirm: {
+      eraseTitle: 'Erase and Install Firmware',
+      eraseMessage:
+        'Erase the entire flash and install {firmware}? All settings, WiFi credentials, and Matter commissioning will be permanently removed.',
+      flashTitle: 'Install Firmware',
+      flashMessage: 'Install {firmware}? WiFi credentials and Matter commissioning will be kept.',
+      installButton: 'Install',
+    },
+    progress: {
+      title: 'SmartBed install in progress',
+      preparing: 'Preparing install...',
+      downloading: 'Downloading {file}...',
+      erasing: 'Erasing flash...',
+      flashing: 'Flashing {part} - {written} of {total} bytes',
+      finalizing: 'Finalizing install...',
+      stop: 'Stop',
+    },
+    status: {
+      success: 'Done — {firmware} installed in {elapsed}s. Device rebooted.',
+      cancelled: 'Install cancelled.',
+      failed: 'Install failed: {error}',
+    },
+    parts: {
+      bootloader: 'bootloader',
+      partitionTable: 'partition table',
+      otaData: 'OTA data',
+      application: 'application',
     },
   },
   partitions: {

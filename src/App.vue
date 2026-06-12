@@ -98,6 +98,15 @@
             {{ t('alerts.serialMonitorClosed') }}
           </v-alert>
           <v-window v-model="activeTab" class="app-tab-content">
+            <!-- SmartBed fork addition: guided firmware install (landing tab) -->
+            <v-window-item value="smartbed">
+              <SmartBedInstallTab :connected="connected"
+                :busy="busy || maintenanceBusy || maintenanceNavigationLocked" :flash-in-progress="flashInProgress"
+                :progress-dialog="flashProgressDialog" :status="smartbedInstallStatus"
+                :status-type="smartbedInstallStatusType" @install="installSmartBedFirmware"
+                @cancel-flash="handleCancelFlash" />
+            </v-window-item>
+
             <v-window-item value="info">
               <DeviceInfoTab :chip-details="chipDetails" />
             </v-window-item>
@@ -702,6 +711,7 @@ import { useI18n } from 'vue-i18n';
 import { useTheme } from 'vuetify';
 import DeviceInfoTab from './components/DeviceInfoTab.vue';
 import FlashFirmwareTab from './components/FlashFirmwareTab.vue';
+import SmartBedInstallTab from './components/SmartBedInstallTab.vue';
 import AppsTab from './components/AppsTab.vue';
 import FilesystemManagerTab from './components/FilesystemManagerTab.vue';
 import LittlefsManagerTab from './components/LittlefsManagerTab.vue';
@@ -771,6 +781,7 @@ import type {
   RegisterOption,
   RegisterReference,
 } from './types/flash-firmware';
+import type { SmartBedInstallRequest } from './types/smartbed-install';
 
 type LittlefsWasmModule = typeof import('./wasm/littlefs/index.js');
 type FatfsWasmModule = typeof import('./wasm/fatfs/index.js');
@@ -4269,9 +4280,13 @@ const appMetadataDisplayError = computed(() => {
   }
   return appMetadataError.value;
 });
-const activeTab = ref('info');
+// SmartBed fork addition: the guided install tab is the landing tab on load.
+const activeTab = ref('smartbed');
 const sessionLogRef = ref<SessionLogTabRef | null>(null);
 const navigationItems = computed(() => [
+  // SmartBed fork addition: guided install entry stays first and always enabled
+  // (the tab itself shows the disconnected state / disables Install as needed).
+  { title: t('navigation.smartbedInstall'), value: 'smartbed', icon: 'mdi-bed', disabled: false },
   { title: t('navigation.deviceInfo'), value: 'info', icon: 'mdi-information-outline', disabled: false },
   { title: t('navigation.partitions'), value: 'partitions', icon: 'mdi-table', disabled: !connected.value },
   {
@@ -6647,6 +6662,232 @@ async function flashFirmware() {
     busy.value = false;
   }
 }
+
+// =============================================================================
+// SmartBed fork addition: guided firmware install ("Install SmartBed Firmware")
+// Mirrors flashFirmware() above: busy guards, runLoaderOperation, the shared
+// flash progress dialog + cancel flow, syncWithStub, partition refresh in
+// finally. Firmware parts are fetched through the same-origin Pages Functions
+// proxy (functions/api/[[path]].js) so the OTA API key never reaches the
+// browser.
+// =============================================================================
+
+const SMARTBED_FLASH_OFFSETS = {
+  bootloader: 0x0,
+  partitionTable: 0xc000,
+  otaData: 0x1d000,
+  application: 0x20000,
+} as const;
+
+// Substitute when the optional ota-data binary is absent in R2: 8 KiB of 0xFF
+// (erased otadata selects the factory/ota_0 slot on first boot).
+const SMARTBED_OTA_DATA_SIZE = 0x2000;
+
+const smartbedInstallStatus = ref<string | null>(null);
+const smartbedInstallStatusType = ref<AlertType>('info');
+
+type SmartBedPart = {
+  labelKey: string;
+  offset: number;
+  data: Uint8Array;
+};
+
+// Fetch one firmware part via the proxy. Optional parts return null on 404;
+// required parts throw with a clear message (raw error text stays English, the
+// UI wraps it via smartbedInstall.status.failed).
+async function fetchSmartBedBinary(file: string, optional: boolean): Promise<Uint8Array | null> {
+  const response = await fetch(`/api/stable/${file}`, { cache: 'no-store' });
+  if (response.status === 404) {
+    if (optional) {
+      return null;
+    }
+    throw new Error(`Required firmware file not found on the update server: ${file} (HTTP 404).`);
+  }
+  if (!response.ok) {
+    throw new Error(`Download failed for ${file} (HTTP ${response.status}).`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+// Download all four firmware parts, then erase (optionally) and flash them
+// sequentially with one aggregate progress bar across the summed byte length.
+async function installSmartBedFirmware(request: SmartBedInstallRequest) {
+  const loaderInstance = loader.value;
+  if (!loaderInstance) {
+    appendLog('Connect to a device before installing SmartBed firmware.', '[ESPConnect-Warn]');
+    return;
+  }
+  if (flashInProgress.value || busy.value) return;
+
+  const firmwareLabel = `${request.binName}-${request.version}`;
+  const confirmed = await showConfirmation({
+    title: request.erase
+      ? t('smartbedInstall.confirm.eraseTitle')
+      : t('smartbedInstall.confirm.flashTitle'),
+    message: request.erase
+      ? t('smartbedInstall.confirm.eraseMessage', { firmware: firmwareLabel })
+      : t('smartbedInstall.confirm.flashMessage', { firmware: firmwareLabel }),
+    confirmText: t('smartbedInstall.confirm.installButton'),
+    cancelText: t('dialogs.cancel'),
+    destructive: request.erase,
+  });
+  if (!confirmed) {
+    appendLog('SmartBed install cancelled by user.', '[ESPConnect-Warn]');
+    return;
+  }
+
+  let shouldRefreshPartitions = false;
+  flashInProgress.value = true;
+  busy.value = true;
+  flashProgress.value = 0;
+  flashCancelRequested.value = false;
+  flashProgressDialog.visible = true;
+  flashProgressDialog.value = 0;
+  flashProgressDialog.indeterminate = true;
+  flashProgressDialog.label = t('smartbedInstall.progress.preparing');
+  smartbedInstallStatus.value = null;
+  smartbedInstallStatusType.value = 'info';
+
+  appendLog(
+    `Installing SmartBed firmware ${firmwareLabel} (${request.erase ? 'erase + flash' : 'flash only'})...`,
+  );
+
+  try {
+    const partSpecs = [
+      {
+        labelKey: 'smartbedInstall.parts.bootloader',
+        file: `bootloader-${firmwareLabel}.bin`,
+        offset: SMARTBED_FLASH_OFFSETS.bootloader,
+        optional: false,
+      },
+      {
+        labelKey: 'smartbedInstall.parts.partitionTable',
+        file: `partition-table-${firmwareLabel}.bin`,
+        offset: SMARTBED_FLASH_OFFSETS.partitionTable,
+        optional: false,
+      },
+      {
+        labelKey: 'smartbedInstall.parts.otaData',
+        file: `ota-data-${request.version}.bin`,
+        offset: SMARTBED_FLASH_OFFSETS.otaData,
+        optional: true,
+      },
+      {
+        labelKey: 'smartbedInstall.parts.application',
+        file: `${firmwareLabel}.bin`,
+        offset: SMARTBED_FLASH_OFFSETS.application,
+        optional: false,
+      },
+    ];
+
+    const parts: SmartBedPart[] = [];
+    for (const spec of partSpecs) {
+      flashProgressDialog.label = t('smartbedInstall.progress.downloading', { file: spec.file });
+      const data = await fetchSmartBedBinary(spec.file, spec.optional);
+      if (data) {
+        parts.push({ labelKey: spec.labelKey, offset: spec.offset, data });
+      } else {
+        appendLog(
+          `Optional ${spec.file} not found on the update server; writing blank OTA data instead.`,
+          '[ESPConnect-Warn]',
+        );
+        parts.push({
+          labelKey: spec.labelKey,
+          offset: spec.offset,
+          data: new Uint8Array(SMARTBED_OTA_DATA_SIZE).fill(0xff),
+        });
+      }
+    }
+    const totalBytes = parts.reduce((sum, part) => sum + part.data.byteLength, 0);
+    appendLog(`Downloaded ${parts.length} firmware parts (${totalBytes.toLocaleString()} bytes).`);
+
+    if (flashCancelRequested.value) {
+      throw new Error('Flash cancelled by user');
+    }
+
+    const startTime = performance.now();
+    shouldRefreshPartitions = true;
+
+    await runLoaderOperation(async () => {
+      const eraseFlashFn = (loaderInstance as ESPLoader & { eraseFlash?: () => Promise<void> }).eraseFlash;
+      if (request.erase && typeof eraseFlashFn === 'function') {
+        flashProgressDialog.indeterminate = true;
+        flashProgressDialog.label = t('smartbedInstall.progress.erasing');
+        appendLog('Erasing entire flash before SmartBed install...');
+        await eraseFlashFn.call(loaderInstance);
+      }
+      flashProgressDialog.indeterminate = false;
+
+      let flashedBytes = 0;
+      for (const part of parts) {
+        if (flashCancelRequested.value) {
+          throw new Error('Flash cancelled by user');
+        }
+        const partLabel = t(part.labelKey);
+        const partSize = part.data.byteLength;
+        await loaderInstance.flashData(
+          part.data.buffer as ArrayBuffer,
+          (written, _total) => {
+            if (flashCancelRequested.value) {
+              throw new Error('Flash cancelled by user');
+            }
+            const done = flashedBytes + Math.min(written, partSize);
+            const pct = totalBytes ? Math.floor((done / totalBytes) * 100) : 0;
+            const clamped = Math.min(100, Math.max(0, pct));
+            flashProgress.value = clamped;
+            flashProgressDialog.visible = true;
+            flashProgressDialog.value = clamped;
+            flashProgressDialog.label = t('smartbedInstall.progress.flashing', {
+              part: partLabel,
+              written: done.toLocaleString(),
+              total: totalBytes.toLocaleString(),
+            });
+          },
+          part.offset,
+          true
+        );
+        flashedBytes += partSize;
+      }
+    });
+    flashProgressDialog.value = 100;
+    flashProgressDialog.label = t('smartbedInstall.progress.finalizing');
+    await esptoolClient.value?.syncWithStub();
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+    appendLog(`SmartBed install of ${firmwareLabel} complete in ${elapsed}s. Device rebooted.`);
+    smartbedInstallStatus.value = t('smartbedInstall.status.success', {
+      firmware: firmwareLabel,
+      elapsed,
+    });
+    smartbedInstallStatusType.value = 'success';
+  } catch (error) {
+    const message = formatErrorMessage(error);
+    if (message === 'Flash cancelled by user') {
+      appendLog('SmartBed install cancelled by user.', '[ESPConnect-Warn]');
+      smartbedInstallStatus.value = t('smartbedInstall.status.cancelled');
+      smartbedInstallStatusType.value = 'warning';
+    } else {
+      appendLog(`SmartBed install failed: ${message}`, '[error]');
+      smartbedInstallStatus.value = t('smartbedInstall.status.failed', { error: message });
+      smartbedInstallStatusType.value = 'error';
+    }
+  } finally {
+    flashProgress.value = 0;
+    flashInProgress.value = false;
+    flashCancelRequested.value = false;
+    flashProgressDialog.visible = false;
+    flashProgressDialog.value = 0;
+    flashProgressDialog.label = '';
+    flashProgressDialog.indeterminate = false;
+    if (shouldRefreshPartitions) {
+      await refreshPartitionTable(loaderInstance);
+    }
+    busy.value = false;
+  }
+}
+
+// =============================================================================
+// End of SmartBed fork addition.
+// =============================================================================
 
 // Reset maintenance, register, and MD5 UI state to defaults.
 function resetMaintenanceState() {
