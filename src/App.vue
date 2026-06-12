@@ -6749,6 +6749,10 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
   }
 
   let shouldRefreshPartitions = false;
+  // True once the erase or the first flash write has started. A cancel after
+  // this point leaves the board blank, so the cancelled status must warn the
+  // user instead of looking benign.
+  let flashTouched = false;
   flashInProgress.value = true;
   busy.value = true;
   flashProgress.value = 0;
@@ -6837,6 +6841,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         smartbedProgressDialog.indeterminate = true;
         smartbedProgressDialog.label = t('smartbedInstall.progress.erasing');
         appendLog('Erasing entire flash before SmartBed install...');
+        flashTouched = true;
         await eraseFlashFn.call(loaderInstance);
       }
       smartbedProgressDialog.indeterminate = false;
@@ -6848,6 +6853,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         }
         const partLabel = t(part.labelKey);
         const partSize = part.data.byteLength;
+        flashTouched = true;
         await loaderInstance.flashData(
           part.data.buffer as ArrayBuffer,
           (written, _total) => {
@@ -6886,7 +6892,10 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
     const message = formatErrorMessage(error);
     if (message === 'Flash cancelled by user') {
       appendLog('SmartBed install cancelled by user.', '[ESPConnect-Warn]');
-      smartbedInstallStatus.value = t('smartbedInstall.status.cancelled');
+      // If the erase or a write already ran, the board has no firmware - say so.
+      smartbedInstallStatus.value = flashTouched
+        ? t('smartbedInstall.status.cancelledAfterErase')
+        : t('smartbedInstall.status.cancelled');
       smartbedInstallStatusType.value = 'warning';
     } else {
       appendLog(`SmartBed install failed: ${message}`, '[error]');

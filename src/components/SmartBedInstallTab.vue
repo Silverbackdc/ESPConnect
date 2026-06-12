@@ -160,6 +160,17 @@ async function loadVersions() {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
+    // An expired Cloudflare Access session returns the login page as a
+    // redirected 200 text/html - fail with a friendly message instead of
+    // letting .json() throw "Unexpected token '<'". Mirrors the guard in
+    // fetchSmartBedBinary (App.vue).
+    const contentType = (response.headers.get('content-type') ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (response.redirected || contentType !== 'application/json') {
+      throw new Error(t('smartbedInstall.errors.sessionExpired'));
+    }
     const payload: unknown = await response.json();
     const rawVersions = (payload as { versions?: unknown })?.versions;
     const list = Array.isArray(rawVersions)

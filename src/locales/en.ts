@@ -411,6 +411,8 @@ const en = {
     status: {
       success: 'Done — {firmware} installed in {elapsed}s. Device rebooted.',
       cancelled: 'Install cancelled.',
+      cancelledAfterErase:
+        'Install cancelled — the board has been erased and has no firmware. Run the install again before unplugging it.',
       failed: 'Install failed: {error}',
     },
     errors: {
@@ -420,6 +422,7 @@ const en = {
         '{file} is not a valid ESP firmware image (missing 0xE9 magic byte). Install aborted — nothing was written to the device.',
       eraseUnsupported:
         'Full flash erase is not supported by the connected loader. Install aborted — choose "Flash only" or reconnect and try again.',
+      sessionExpired: 'Your login session has expired — reload the page to sign in again.',
     },
     parts: {
       bootloader: 'bootloader',
