@@ -38,9 +38,9 @@
       </v-alert>
       <v-radio-group v-model="selectedAction" :label="t('smartbedInstall.actionLabel')" hide-details
         :disabled="busy || flashInProgress">
-        <v-radio value="erase" :label="t('smartbedInstall.actionErase')" data-testid="smartbed-action-erase" />
         <v-radio value="flash-only" :label="t('smartbedInstall.actionFlashOnly')"
           data-testid="smartbed-action-flash-only" />
+        <v-radio value="erase" :label="t('smartbedInstall.actionErase')" data-testid="smartbed-action-erase" />
       </v-radio-group>
       <p v-if="!connected" class="smartbed-install__hint text-medium-emphasis">
         {{ t('smartbedInstall.connectHint') }}
@@ -140,7 +140,7 @@ const manufacturerItems = MANUFACTURERS;
 const channel = ref<'stable' | 'beta'>('stable');
 const selectedManufacturer = ref<string | null>(null);
 const selectedVersion = ref<string | null>(null);
-const selectedAction = ref<SmartBedInstallAction>('erase');
+const selectedAction = ref<SmartBedInstallAction>('flash-only');
 const versions = ref<string[]>([]);
 const versionsLoading = ref(false);
 const versionsError = ref<string | null>(null);
