@@ -6693,11 +6693,12 @@ type SmartBedPart = {
 // Cloudflare Access session, where the login page comes back as a redirected
 // 200 text/html - flashing that to 0x0 would brick the board.
 async function fetchSmartBedBinary(
+  channel: string,
   file: string,
   optional: boolean,
   expectEspImage = false,
 ): Promise<Uint8Array | null> {
-  const response = await fetch(`/api/stable/${file}`, { cache: 'no-store' });
+  const response = await fetch(`/api/${channel}/${file}`, { cache: 'no-store' });
   if (response.status === 404) {
     if (optional) {
       return null;
@@ -6806,7 +6807,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         throw new Error('Flash cancelled by user');
       }
       smartbedProgressDialog.label = t('smartbedInstall.progress.downloading', { file: spec.file });
-      const data = await fetchSmartBedBinary(spec.file, spec.optional, spec.expectEspImage);
+      const data = await fetchSmartBedBinary(request.channel, spec.file, spec.optional, spec.expectEspImage);
       if (data) {
         parts.push({ labelKey: spec.labelKey, offset: spec.offset, data });
       } else {

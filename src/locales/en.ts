@@ -380,6 +380,9 @@ const en = {
     intro:
       'Guided installer for SmartBed controller boards. Pick the bed manufacturer and firmware version, choose an action, then install over USB.',
     manufacturerLabel: 'Bed manufacturer',
+    channelLabel: 'Update channel',
+    channelStable: 'Stable',
+    channelBeta: 'Beta',
     versionLabel: 'Firmware version',
     latestSuffix: '(latest)',
     refreshVersions: 'Refresh version list',

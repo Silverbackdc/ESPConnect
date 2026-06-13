@@ -12,6 +12,12 @@
       <v-select v-model="selectedManufacturer" :items="manufacturerItems" item-title="label" item-value="slug"
         :label="t('smartbedInstall.manufacturerLabel')" density="comfortable" :disabled="busy || flashInProgress"
         data-testid="smartbed-manufacturer-select" />
+      <v-btn-toggle v-model="channel" mandatory density="comfortable" variant="outlined" color="primary"
+        class="smartbed-install__channel" :disabled="busy || flashInProgress || versionsLoading"
+        data-testid="smartbed-channel-toggle" @update:model-value="loadVersions">
+        <v-btn value="stable" data-testid="smartbed-channel-stable">{{ t('smartbedInstall.channelStable') }}</v-btn>
+        <v-btn value="beta" data-testid="smartbed-channel-beta">{{ t('smartbedInstall.channelBeta') }}</v-btn>
+      </v-btn-toggle>
       <v-row density="comfortable" align="center" no-gutters class="smartbed-install__version-row">
         <v-col>
           <v-select v-model="selectedVersion" :items="versionItems" item-title="title" item-value="value"
@@ -128,6 +134,10 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const manufacturerItems = MANUFACTURERS;
+// OTA release channel. Staff can flash beta test builds without affecting the
+// stable channel customer devices receive. Both the version list and the
+// firmware download path are prefixed with this (see loadVersions / install).
+const channel = ref<'stable' | 'beta'>('stable');
 const selectedManufacturer = ref<string | null>(null);
 const selectedVersion = ref<string | null>(null);
 const selectedAction = ref<SmartBedInstallAction>('erase');
@@ -156,7 +166,7 @@ async function loadVersions() {
   versionsLoading.value = true;
   versionsError.value = null;
   try {
-    const response = await fetch('/api/stable/versions', { cache: 'no-store' });
+    const response = await fetch(`/api/${channel.value}/versions`, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -201,6 +211,7 @@ function handleInstall() {
     label: manufacturer.label,
     binName: manufacturer.binName,
     version: selectedVersion.value,
+    channel: channel.value,
     erase: selectedAction.value === 'erase',
   });
 }
@@ -231,6 +242,10 @@ onMounted(() => {
 .smartbed-install__hint {
   font-size: 0.78rem;
   margin-top: -4px;
+}
+
+.smartbed-install__channel {
+  align-self: flex-start;
 }
 
 .smartbed-install__version-row {

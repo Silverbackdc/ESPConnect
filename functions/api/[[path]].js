@@ -1,9 +1,9 @@
 // Server-side proxy to the OTA worker. The browser never sees the API key:
 // it lives in the OTA_API_KEY Pages secret (set via `wrangler pages secret put`).
-// Path allowlist = version list + stable firmware binaries only.
+// Path allowlist = version list + firmware binaries, on the stable or beta channel.
 
 const UPSTREAM = "https://esp-ota.ryan-charles.workers.dev";
-const ALLOWED = /^stable\/(versions$|[A-Za-z0-9._-]+\.bin$)/;
+const ALLOWED = /^(stable|beta)\/(versions$|[A-Za-z0-9._-]+\.bin$)/;
 
 export async function onRequestGet(context) {
   const path = (context.params.path ?? []).join("/");
