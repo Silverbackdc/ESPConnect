@@ -63,6 +63,17 @@
             {{ t('serialMonitor.actions.copy') }}
           </v-btn>
           <v-btn
+            color="primary"
+            variant="text"
+            size="small"
+            prepend-icon="mdi-file-download-outline"
+            :disabled="!hasMonitorOutput"
+            data-testid="smartbed-monitor-export"
+            @click="exportMonitor"
+          >
+            {{ t('serialMonitor.actions.export') }}
+          </v-btn>
+          <v-btn
             color="secondary"
             variant="text"
             size="small"
@@ -505,6 +516,39 @@ async function copyMonitor(): Promise<void> {
     };
   } finally {
     copying.value = false;
+  }
+}
+
+function exportMonitor(): void {
+  const text = displayPlainText.value;
+  if (!text || typeof document === 'undefined') {
+    return;
+  }
+
+  try {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    // Filesystem-safe timestamp: 2026-06-14_13-45-09 (colons/dots break some OSes).
+    const stamp = new Date().toISOString().replace('T', '_').replace(/[:.]/g, '-').slice(0, 19);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `serial-monitor-${stamp}.log`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    copyFeedback.value = {
+      visible: true,
+      message: t('serialMonitor.exportSuccess'),
+      color: 'success',
+    };
+  } catch (error: unknown) {
+    console.error('Failed to export serial monitor output', error);
+    copyFeedback.value = {
+      visible: true,
+      message: t('serialMonitor.exportError'),
+      color: 'error',
+    };
   }
 }
 

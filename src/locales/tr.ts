@@ -61,6 +61,7 @@ const tr = {
       pause: 'Duraklat',
       resume: 'Devam Et',
       copy: 'Kopyala',
+      export: 'Dışa Aktar',
       clear: 'Temizle',
       reset: 'Sıfırla',
       send: 'Gönder',
@@ -74,6 +75,8 @@ const tr = {
     emptyState: 'Monitör çıktısı başlatıldığında burada görünecektir.',
     copySuccess: 'Seri monitör panoya kopyalandı.',
     copyError: 'Seri monitör çıktısı kopyalanamadı. Lütfen tekrar deneyin.',
+    exportSuccess: 'Seri monitör bir .log dosyasına kaydedildi.',
+    exportError: 'Seri monitör çıktısı dışa aktarılamadı. Lütfen tekrar deneyin.',
   },
   serialPortPicker: {
     title: 'Seri port seç',

@@ -61,6 +61,7 @@ const de = {
       pause: 'Pause',
       resume: 'Fortsetzen',
       copy: 'Kopieren',
+      export: 'Exportieren',
       clear: 'Leeren',
       reset: 'Zurücksetzen',
       send: 'Senden',
@@ -74,6 +75,8 @@ const de = {
     emptyState: 'Die Monitorausgabe erscheint hier nach dem Start.',
     copySuccess: 'Serieller Monitor in die Zwischenablage kopiert.',
     copyError: 'Ausgabe des seriellen Monitors konnte nicht kopiert werden. Bitte versuche es erneut.',
+    exportSuccess: 'Serieller Monitor in einer .log-Datei gespeichert.',
+    exportError: 'Ausgabe des seriellen Monitors konnte nicht exportiert werden. Bitte versuche es erneut.',
   },
   serialPortPicker: {
     title: 'Seriellen Port auswählen',

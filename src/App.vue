@@ -4235,7 +4235,11 @@ const maintenanceReturnInProgress = ref(false);
 const maintenanceNavigationLocked = computed(
   () => monitorActive.value || maintenanceReturnInProgress.value
 );
-const MONITOR_BUFFER_LIMIT = 20000;
+// Serial-monitor scrollback cap, in characters (not lines). The displayed log
+// keeps only the most recent MONITOR_BUFFER_LIMIT chars; older output scrolls
+// off. SmartBed fork bumped this 10x (20k -> 200k, ~2.5k lines) so long boot /
+// crash logs stay visible. Use the monitor's Export button to save a full copy.
+const MONITOR_BUFFER_LIMIT = 200000;
 let monitorPendingText = '';
 let monitorFlushHandle: ReturnType<typeof setTimeout> | number | null = null;
 let monitorFlushUsingAnimationFrame = false;

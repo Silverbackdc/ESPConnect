@@ -49,6 +49,7 @@ const zh = {
       pause: '暂停',
       resume: '继续',
       copy: '复制',
+      export: '导出',
       clear: '清除',
       reset: '复位',
       send: '发送',
@@ -62,6 +63,8 @@ const zh = {
     emptyState: '启动后，监视器输出会显示在此处。',
     copySuccess: '串口监视器信息已复制到剪贴板。',
     copyError: '无法复制串口监视器输出。请重试。',
+    exportSuccess: '串口监视器已保存为 .log 文件。',
+    exportError: '无法导出串口监视器输出。请重试。',
   },
   serialPortPicker: {
     title: '选择串口',

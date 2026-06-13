@@ -62,6 +62,7 @@ const en = {
       pause: 'Pause',
       resume: 'Resume',
       copy: 'Copy',
+      export: 'Export',
       clear: 'Clear',
       reset: 'Reset',
       send: 'Send',
@@ -75,6 +76,8 @@ const en = {
     emptyState: 'Monitor output will appear here once started.',
     copySuccess: 'Serial monitor copied to clipboard.',
     copyError: 'Unable to copy serial monitor output. Please try again.',
+    exportSuccess: 'Serial monitor saved to a .log file.',
+    exportError: 'Unable to export serial monitor output. Please try again.',
   },
   serialPortPicker: {
     title: 'Select serial port',
