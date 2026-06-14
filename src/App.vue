@@ -721,7 +721,7 @@ import { useFatfsManager, useLittlefsManager, useSpiffsManager } from './composa
 import { useDialogs } from './composables/useDialogs';
 import { getLanguage, setLanguage, supportedLocales, SupportedLocale } from './plugins/i18n';
 import { readPartitionTable, probePartitionTableOffset } from './utils/partitions';
-import { detectActiveOtaSlot } from './utils/ota';
+import { detectActiveOtaSlot, buildSelectOta0Otadata } from './utils/ota';
 import type { ESPLoader } from 'tasmota-webserial-esptool';
 import { createEsptoolClient, requestSerialPort, type CompatibleTransport, type EsptoolClient, type StatusPayload } from './services/esptoolClient';
 import {
@@ -6656,16 +6656,18 @@ async function flashFirmware() {
 // browser.
 // =============================================================================
 
+// Offsets for the 16MB N16R8 partition table (smartbed partitions.csv):
+// bootloader 0x0, partition table 0xc000, otadata 0x31000, ota_0 (app) 0x2c0000.
+// The application is written to ota_0 — the factory partition at 0x40000 is
+// reserved/empty (future recovery image) — and a generated otadata selecting
+// ota_0 is written so a freshly provisioned device boots ota_0 directly instead
+// of probing the empty factory slot on every boot until the first OTA.
 const SMARTBED_FLASH_OFFSETS = {
   bootloader: 0x0,
   partitionTable: 0xc000,
-  otaData: 0x1d000,
-  application: 0x20000,
+  otaData: 0x31000,
+  application: 0x2c0000,
 } as const;
-
-// Substitute when the optional ota-data binary is absent in R2: 8 KiB of 0xFF
-// (erased otadata selects the factory/ota_0 slot on first boot).
-const SMARTBED_OTA_DATA_SIZE = 0x2000;
 
 const smartbedInstallStatus = ref<string | null>(null);
 const smartbedInstallStatusType = ref<AlertType>('info');
@@ -6779,28 +6781,18 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         labelKey: 'smartbedInstall.parts.bootloader',
         file: `bootloader-${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.bootloader,
-        optional: false,
         expectEspImage: true,
       },
       {
         labelKey: 'smartbedInstall.parts.partitionTable',
         file: `partition-table-${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.partitionTable,
-        optional: false,
-        expectEspImage: false,
-      },
-      {
-        labelKey: 'smartbedInstall.parts.otaData',
-        file: `ota-data-${request.version}.bin`,
-        offset: SMARTBED_FLASH_OFFSETS.otaData,
-        optional: true,
         expectEspImage: false,
       },
       {
         labelKey: 'smartbedInstall.parts.application',
         file: `${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.application,
-        optional: false,
         expectEspImage: true,
       },
     ];
@@ -6811,21 +6803,24 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         throw new Error('Flash cancelled by user');
       }
       smartbedProgressDialog.label = t('smartbedInstall.progress.downloading', { file: spec.file });
-      const data = await fetchSmartBedBinary(request.channel, spec.file, spec.optional, spec.expectEspImage);
-      if (data) {
-        parts.push({ labelKey: spec.labelKey, offset: spec.offset, data });
-      } else {
-        appendLog(
-          `Optional ${spec.file} not found on the update server; writing blank OTA data instead.`,
-          '[ESPConnect-Warn]',
-        );
-        parts.push({
-          labelKey: spec.labelKey,
-          offset: spec.offset,
-          data: new Uint8Array(SMARTBED_OTA_DATA_SIZE).fill(0xff),
-        });
+      // All three are required; fetchSmartBedBinary throws on 404 (optional=false).
+      const data = await fetchSmartBedBinary(request.channel, spec.file, false, spec.expectEspImage);
+      if (!data) {
+        throw new Error(`Required firmware file missing: ${spec.file}`);
       }
+      parts.push({ labelKey: spec.labelKey, offset: spec.offset, data });
     }
+
+    // Write a generated otadata that selects ota_0 (the app slot) so first boot
+    // is clean. The factory partition is reserved/empty under the 16MB table, so
+    // an erased otadata would make the bootloader probe the empty factory slot on
+    // every boot until the first OTA. Inserted before the application so all four
+    // parts land before the device reboots. See buildSelectOta0Otadata().
+    parts.splice(2, 0, {
+      labelKey: 'smartbedInstall.parts.otaData',
+      offset: SMARTBED_FLASH_OFFSETS.otaData,
+      data: buildSelectOta0Otadata(),
+    });
     const totalBytes = parts.reduce((sum, part) => sum + part.data.byteLength, 0);
     appendLog(`Downloaded ${parts.length} firmware parts (${totalBytes.toLocaleString()} bytes).`);
 

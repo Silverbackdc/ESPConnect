@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { OTA_SELECT_SECTOR_SIZE } from "../constants/app";
-import { detectActiveOtaSlot } from "../utils/ota";
+import { detectActiveOtaSlot, buildSelectOta0Otadata } from "../utils/ota";
 
 const FIXTURE_OTA1_PATH = path.resolve(
   process.cwd(),
@@ -86,5 +86,31 @@ describe("otadata fixture detection", () => {
 
     expect(detected.slotId).toBeNull();
     expect(detected.summary).toBe("No valid OTA selection found");
+  });
+});
+
+describe("buildSelectOta0Otadata (flash-time otadata)", () => {
+  it("produces a valid ota_0-selecting otadata image", () => {
+    const otadata = buildSelectOta0Otadata();
+    expect(otadata.length).toBe(OTA_SELECT_SECTOR_SIZE * 2);
+    const view = new DataView(otadata.buffer, otadata.byteOffset, otadata.byteLength);
+    // sector 0: active entry selecting ota_0 with the bootloader's CRC
+    expect(view.getUint32(0, true)).toBe(1); // ota_seq -> (1-1)%2 = ota_0
+    expect(view.getUint32(28, true)).toBe(0x4743989a); // bootloader crc of seq=1
+    // sector 1: erased so sector 0 wins
+    expect(view.getUint32(OTA_SELECT_SECTOR_SIZE + 0, true)).toBe(0xffffffff);
+  });
+
+  it("parses back to ota_0 as the active slot", () => {
+    const detected = detectActiveOtaSlot(buildSelectOta0Otadata(), DEFAULT_OTA_ENTRIES);
+    expect(detected.slotId).toBe("ota_0");
+  });
+
+  it("matches a real ESP-IDF otadata image's active entry (seq + crc)", () => {
+    const generated = new DataView(buildSelectOta0Otadata().buffer);
+    const fixture = new Uint8Array(readFileSync(FIXTURE_OTA0_PATH));
+    const fixtureView = new DataView(fixture.buffer, fixture.byteOffset, fixture.byteLength);
+    expect(generated.getUint32(0, true)).toBe(fixtureView.getUint32(0, true)); // ota_seq
+    expect(generated.getUint32(28, true)).toBe(fixtureView.getUint32(28, true)); // crc
   });
 });
