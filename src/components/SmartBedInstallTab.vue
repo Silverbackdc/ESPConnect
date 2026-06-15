@@ -92,14 +92,17 @@ import type {
 } from '../types/smartbed-install';
 
 // Supported manufacturer targets (slug -> R2 binary base name). Brand names are
-// technical identifiers and intentionally not translated. The chair and reseller
-// brand variants are excluded by design - they have no field OTA binaries in R2.
+// technical identifiers and intentionally not translated. The chair variant and most
+// reseller brand variants are excluded by design - they have no field OTA binaries in
+// R2. The one exception is Linak-LifeChangingBeds, which DOES get R2 OTA uploads and
+// uses reseller naming ({Name}, no 'Bed' suffix) - the worker serves it as-is.
 const MANUFACTURERS: SmartBedManufacturer[] = [
   { slug: 'timotion', label: 'TiMotion', binName: 'TiMotionBed' },
   { slug: 'jiecang', label: 'Jiecang', binName: 'JiecangBed' },
   { slug: 'duomat9', label: 'Duomat 9', binName: 'Duomat9Bed' },
   { slug: 'okin_cb24', label: 'Okin CB24', binName: 'Okin_CB24Bed' },
   { slug: 'linak', label: 'Linak (wired)', binName: 'LinakBed' },
+  { slug: 'linak_lcb', label: 'Linak (Life Changing Beds)', binName: 'Linak-LifeChangingBeds' },
   { slug: 'ergomotion', label: 'Ergomotion', binName: 'ErgomotionBed' },
   { slug: 'tempurpedic', label: 'Tempurpedic', binName: 'TempurpedicBed' },
   { slug: 'richmat_hjc9', label: 'Richmat HJC9', binName: 'Richmat_HJC9Bed' },
