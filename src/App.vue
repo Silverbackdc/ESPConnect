@@ -720,7 +720,7 @@ import { createSpiffsFromImage, SpiffsErrorCode } from './wasm/spiffs';
 import { useFatfsManager, useLittlefsManager, useSpiffsManager } from './composables/useFilesystemManagers';
 import { useDialogs } from './composables/useDialogs';
 import { getLanguage, setLanguage, supportedLocales, SupportedLocale } from './plugins/i18n';
-import { readPartitionTable, probePartitionTableOffset } from './utils/partitions';
+import { readPartitionTable, probePartitionTableOffset, resolveSmartBedFlashOffsets } from './utils/partitions';
 import { detectActiveOtaSlot } from './utils/ota';
 import type { ESPLoader } from 'tasmota-webserial-esptool';
 import { createEsptoolClient, requestSerialPort, type CompatibleTransport, type EsptoolClient, type StatusPayload } from './services/esptoolClient';
@@ -6656,11 +6656,23 @@ async function flashFirmware() {
 // browser.
 // =============================================================================
 
+// FALLBACK offsets only. otaData + application are normally DERIVED at flash
+// time from the partition-table.bin we download (resolveSmartBedFlashOffsets),
+// so they can never drift from the firmware's partitions.csv again. These
+// hardcoded values match the current 8.0.0 "16MB N16R8" layout and are used
+// only if that table can't be parsed.
+//
+// Background: hardcoded offsets drifted once - the 8.0.0 table moved otadata
+// 0x1d000 -> 0x31000 and the boot app to a dedicated `factory` at 0x40000 (was
+// ota_0 at 0x20000), which bricked fresh web-flashed boards (bootloader + table
+// landed, app written to the old offset, factory left blank -> "invalid magic
+// byte"). bootloader (0x0) and partition-table (0xc000 =
+// CONFIG_PARTITION_TABLE_OFFSET) are fixed - they aren't listed in the table.
 const SMARTBED_FLASH_OFFSETS = {
   bootloader: 0x0,
   partitionTable: 0xc000,
-  otaData: 0x1d000,
-  application: 0x20000,
+  otaData: 0x31000,
+  application: 0x40000,
 } as const;
 
 // Substitute when the optional ota-data binary is absent in R2: 8 KiB of 0xFF
@@ -6685,7 +6697,10 @@ const smartbedProgressDialog = reactive<ProgressDialogState>({
 // First byte of every valid ESP-IDF bootloader/app image.
 const ESP_IMAGE_MAGIC = 0xe9;
 
+type SmartBedPartKey = 'bootloader' | 'partitionTable' | 'otaData' | 'application';
+
 type SmartBedPart = {
+  key: SmartBedPartKey;
   labelKey: string;
   offset: number;
   data: Uint8Array;
@@ -6776,6 +6791,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
   try {
     const partSpecs = [
       {
+        key: 'bootloader' as SmartBedPartKey,
         labelKey: 'smartbedInstall.parts.bootloader',
         file: `bootloader-${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.bootloader,
@@ -6783,6 +6799,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         expectEspImage: true,
       },
       {
+        key: 'partitionTable' as SmartBedPartKey,
         labelKey: 'smartbedInstall.parts.partitionTable',
         file: `partition-table-${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.partitionTable,
@@ -6790,6 +6807,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         expectEspImage: false,
       },
       {
+        key: 'otaData' as SmartBedPartKey,
         labelKey: 'smartbedInstall.parts.otaData',
         file: `ota-data-${request.version}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.otaData,
@@ -6797,6 +6815,7 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
         expectEspImage: false,
       },
       {
+        key: 'application' as SmartBedPartKey,
         labelKey: 'smartbedInstall.parts.application',
         file: `${firmwareLabel}.bin`,
         offset: SMARTBED_FLASH_OFFSETS.application,
@@ -6813,19 +6832,49 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
       smartbedProgressDialog.label = t('smartbedInstall.progress.downloading', { file: spec.file });
       const data = await fetchSmartBedBinary(request.channel, spec.file, spec.optional, spec.expectEspImage);
       if (data) {
-        parts.push({ labelKey: spec.labelKey, offset: spec.offset, data });
+        parts.push({ key: spec.key, labelKey: spec.labelKey, offset: spec.offset, data });
       } else {
         appendLog(
           `Optional ${spec.file} not found on the update server; writing blank OTA data instead.`,
           '[ESPConnect-Warn]',
         );
         parts.push({
+          key: spec.key,
           labelKey: spec.labelKey,
           offset: spec.offset,
           data: new Uint8Array(SMARTBED_OTA_DATA_SIZE).fill(0xff),
         });
       }
     }
+
+    // Derive the real otadata + boot-app offsets from the partition table we
+    // just downloaded and override the hardcoded fallbacks. This stops a future
+    // partitions.csv change from silently flashing the app to the wrong place
+    // (the 8.0.0 16MB redesign did exactly that and bricked boards). If the
+    // table can't be parsed, the SMARTBED_FLASH_OFFSETS fallbacks stand.
+    const partitionTablePart = parts.find(part => part.key === 'partitionTable');
+    if (partitionTablePart) {
+      const derived = resolveSmartBedFlashOffsets(partitionTablePart.data);
+      const overrides: Array<{ key: SmartBedPartKey; offset: number }> = [];
+      if (derived.application != null) overrides.push({ key: 'application', offset: derived.application });
+      if (derived.otaData != null) overrides.push({ key: 'otaData', offset: derived.otaData });
+      for (const { key, offset } of overrides) {
+        const part = parts.find(candidate => candidate.key === key);
+        if (part && part.offset !== offset) {
+          appendLog(
+            `Partition table puts ${key} at 0x${offset.toString(16)} (fallback was 0x${part.offset.toString(16)}); using the partition-table offset.`,
+          );
+          part.offset = offset;
+        }
+      }
+      if (derived.application == null) {
+        appendLog(
+          'No app partition found in the downloaded partition table; using the built-in application offset.',
+          '[ESPConnect-Warn]',
+        );
+      }
+    }
+
     const totalBytes = parts.reduce((sum, part) => sum + part.data.byteLength, 0);
     appendLog(`Downloaded ${parts.length} firmware parts (${totalBytes.toLocaleString()} bytes).`);
 

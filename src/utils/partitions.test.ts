@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { detectFilesystemType, probePartitionTableOffset, readPartitionTable } from './partitions';
+import {
+  detectFilesystemType,
+  parsePartitionTableEntries,
+  probePartitionTableOffset,
+  readPartitionTable,
+  resolveSmartBedFlashOffsets,
+} from './partitions';
 
 const textEncoder = new TextEncoder();
 const FIXTURE_ROOT = path.resolve(process.cwd(), 'src/tests/fixtures/fs-images');
@@ -273,6 +279,79 @@ describe('partition utilities', () => {
       });
       expect(entries).toEqual([]);
       expect(readError).toBeInstanceOf(Error);
+    });
+  });
+
+  describe('parsePartitionTableEntries', () => {
+    function buildTable(entries: Uint8Array[]) {
+      const table = new Uint8Array(0xc00).fill(0xff);
+      let offset = 0;
+      for (const entry of entries) {
+        table.set(entry, offset);
+        offset += 32;
+      }
+      return table;
+    }
+
+    it('parses every entry up to the 0xffff terminator', () => {
+      const table = buildTable([
+        makePartitionEntry({ type: 0x01, subtype: 0x02, offset: 0x10000, size: 0x20000, label: 'nvs' }),
+        makePartitionEntry({ type: 0x00, subtype: 0x00, offset: 0x40000, size: 0x280000, label: 'factory' }),
+        makeTerminator(),
+      ]);
+      expect(parsePartitionTableEntries(table)).toEqual([
+        { label: 'nvs', type: 0x01, subtype: 0x02, offset: 0x10000, size: 0x20000 },
+        { label: 'factory', type: 0x00, subtype: 0x00, offset: 0x40000, size: 0x280000 },
+      ]);
+    });
+
+    it('returns an empty array for an all-0xff (erased) buffer', () => {
+      expect(parsePartitionTableEntries(new Uint8Array(0xc00).fill(0xff))).toEqual([]);
+    });
+  });
+
+  describe('resolveSmartBedFlashOffsets', () => {
+    function buildTable(entries: Uint8Array[]) {
+      const table = new Uint8Array(0xc00).fill(0xff);
+      let offset = 0;
+      for (const entry of entries) {
+        table.set(entry, offset);
+        offset += 32;
+      }
+      return table;
+    }
+
+    // Real 8.0.0 "16MB N16R8" layout: dedicated factory app + otadata moved.
+    it('derives the factory app + otadata offsets from the 8.0.0 table', () => {
+      const table = buildTable([
+        makePartitionEntry({ type: 0x01, subtype: 0x02, offset: 0x10000, size: 0x20000, label: 'nvs' }),
+        makePartitionEntry({ type: 0x01, subtype: 0x04, offset: 0x30000, size: 0x1000, label: 'nvs_keys' }),
+        makePartitionEntry({ type: 0x01, subtype: 0x00, offset: 0x31000, size: 0x2000, label: 'otadata' }),
+        makePartitionEntry({ type: 0x01, subtype: 0x01, offset: 0x33000, size: 0x1000, label: 'phy_init' }),
+        makePartitionEntry({ type: 0x00, subtype: 0x00, offset: 0x40000, size: 0x280000, label: 'factory' }),
+        makePartitionEntry({ type: 0x00, subtype: 0x10, offset: 0x2c0000, size: 0x400000, label: 'ota_0' }),
+        makePartitionEntry({ type: 0x00, subtype: 0x11, offset: 0x6c0000, size: 0x400000, label: 'ota_1' }),
+        makeTerminator(),
+      ]);
+      expect(resolveSmartBedFlashOffsets(table)).toEqual({ application: 0x40000, otaData: 0x31000 });
+    });
+
+    // Old pre-8.0.0 layout: no factory, boots ota_0; otadata auto-placed lower.
+    it('falls back to the lowest OTA slot when there is no factory partition', () => {
+      const table = buildTable([
+        makePartitionEntry({ type: 0x01, subtype: 0x02, offset: 0x10000, size: 0xc000, label: 'nvs' }),
+        makePartitionEntry({ type: 0x01, subtype: 0x04, offset: 0x1c000, size: 0x1000, label: 'nvs_keys' }),
+        makePartitionEntry({ type: 0x01, subtype: 0x00, offset: 0x1d000, size: 0x2000, label: 'otadata' }),
+        makePartitionEntry({ type: 0x01, subtype: 0x01, offset: 0x1f000, size: 0x1000, label: 'phy_init' }),
+        makePartitionEntry({ type: 0x00, subtype: 0x11, offset: 0x2a0000, size: 0x280000, label: 'ota_1' }),
+        makePartitionEntry({ type: 0x00, subtype: 0x10, offset: 0x20000, size: 0x280000, label: 'ota_0' }),
+        makeTerminator(),
+      ]);
+      expect(resolveSmartBedFlashOffsets(table)).toEqual({ application: 0x20000, otaData: 0x1d000 });
+    });
+
+    it('returns no offsets for an unparseable (erased) table', () => {
+      expect(resolveSmartBedFlashOffsets(new Uint8Array(0xc00).fill(0xff))).toEqual({});
     });
   });
 });

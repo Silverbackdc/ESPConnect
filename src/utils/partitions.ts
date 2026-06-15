@@ -248,6 +248,88 @@ export async function probePartitionTableOffset(
   return null;
 }
 
+export interface PartitionTableEntry {
+  label: string;
+  type: number;
+  subtype: number;
+  offset: number;
+  size: number;
+}
+
+// Parse a raw ESP-IDF partition-table image (array of 32-byte entries) into
+// structured entries. Stops at the 0xffff/0x0000 terminator and skips any row
+// without the entry magic. Pure + synchronous (no flash reads), so it runs on a
+// downloaded partition-table.bin as well as on bytes read back from a device.
+export function parsePartitionTableEntries(data: Uint8Array): PartitionTableEntry[] {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const decoder = new TextDecoder();
+  const entries: PartitionTableEntry[] = [];
+  for (let i = 0; i + PARTITION_ENTRY_SIZE <= data.length; i += PARTITION_ENTRY_SIZE) {
+    const magic = view.getUint16(i, true);
+    if (magic === 0xffff || magic === 0x0000) break;
+    if (magic !== PARTITION_ENTRY_MAGIC_LE) continue;
+    const type = view.getUint8(i + 2);
+    const subtype = view.getUint8(i + 3);
+    const addr = view.getUint32(i + 4, true);
+    const size = view.getUint32(i + 8, true);
+    const labelBytes = data.subarray(i + 12, i + 28);
+    const label = decoder.decode(labelBytes).replace(/\0/g, '').trim();
+    entries.push({ label: label || `type 0x${type.toString(16)}`, type, subtype, offset: addr, size });
+  }
+  return entries;
+}
+
+// Partition type/subtype constants (ESP-IDF esp_partition.h).
+const PARTITION_TYPE_APP = 0x00;
+const PARTITION_TYPE_DATA = 0x01;
+const PARTITION_SUBTYPE_APP_FACTORY = 0x00;
+const PARTITION_SUBTYPE_APP_OTA_MIN = 0x10;
+const PARTITION_SUBTYPE_APP_OTA_MAX = 0x1f;
+const PARTITION_SUBTYPE_DATA_OTADATA = 0x00;
+
+export interface SmartBedFlashOffsets {
+  application?: number;
+  otaData?: number;
+}
+
+// Work out where a fresh flash must write the application and the otadata
+// partition from a raw partition-table image. With blank otadata the bootloader
+// runs `factory` if present, otherwise the lowest-numbered OTA slot - that is
+// the app's flash destination. Anything not found is left undefined so the
+// caller can fall back to a known-good default instead of guessing.
+export function resolveSmartBedFlashOffsets(partitionTable: Uint8Array): SmartBedFlashOffsets {
+  const entries = parsePartitionTableEntries(partitionTable);
+  const result: SmartBedFlashOffsets = {};
+
+  const factory = entries.find(
+    e => e.type === PARTITION_TYPE_APP && e.subtype === PARTITION_SUBTYPE_APP_FACTORY,
+  );
+  if (factory) {
+    result.application = factory.offset;
+  } else {
+    const otaSlots = entries
+      .filter(
+        e =>
+          e.type === PARTITION_TYPE_APP &&
+          e.subtype >= PARTITION_SUBTYPE_APP_OTA_MIN &&
+          e.subtype <= PARTITION_SUBTYPE_APP_OTA_MAX,
+      )
+      .sort((a, b) => a.subtype - b.subtype);
+    if (otaSlots.length > 0) {
+      result.application = otaSlots[0].offset;
+    }
+  }
+
+  const otadata = entries.find(
+    e => e.type === PARTITION_TYPE_DATA && e.subtype === PARTITION_SUBTYPE_DATA_OTADATA,
+  );
+  if (otadata) {
+    result.otaData = otadata.offset;
+  }
+
+  return result;
+}
+
 export async function readPartitionTable(
   loader: { readFlash: (offset: number, length: number) => Promise<Uint8Array> },
   offset?: number,
@@ -267,31 +349,8 @@ export async function readPartitionTable(
   }
   try {
     const data = await loader.readFlash(offset, length);
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    const decoder = new TextDecoder();
-    const entries: Array<{
-      label: string;
-      type: number;
-      subtype: number;
-      offset: number;
-      size: number;
-      detectedFilesystem?: DetectedFilesystem;
-    }> = [];
-    for (let i = 0; i + PARTITION_ENTRY_SIZE <= data.length; i += PARTITION_ENTRY_SIZE) {
-      const magic = view.getUint16(i, true);
-      if (magic === 0xffff || magic === 0x0000) break;
-      if (magic !== PARTITION_ENTRY_MAGIC_LE) continue;
-      const type = view.getUint8(i + 2);
-      const subtype = view.getUint8(i + 3);
-      const addr = view.getUint32(i + 4, true);
-      const size = view.getUint32(i + 8, true);
-      const labelBytes = data.subarray(i + 12, i + 28);
-      const label = decoder
-        .decode(labelBytes)
-        .replace(/\0/g, '')
-        .trim();
-      entries.push({ label: label || `type 0x${type.toString(16)}`, type, subtype, offset: addr, size });
-    }
+    const entries: Array<PartitionTableEntry & { detectedFilesystem?: DetectedFilesystem }> =
+      parsePartitionTableEntries(data);
 
     const fsCandidateSubtypes = new Set([0x81, 0x82, 0x83]);
     for (const entry of entries) {
