@@ -6875,6 +6875,14 @@ async function installSmartBedFirmware(request: SmartBedInstallRequest) {
       }
     }
 
+    // Unconditional build marker + resolved flash plan. Lets us see, in the log,
+    // which build is running and the exact target offset for each part - so a
+    // stale cached bundle (old hardcoded offsets) is immediately obvious.
+    appendLog(
+      `SmartBed installer [build: offsets-from-partition-table 2026-06-15b] flash plan -> ` +
+        parts.map(part => `${part.key}@0x${part.offset.toString(16)}`).join(', '),
+    );
+
     const totalBytes = parts.reduce((sum, part) => sum + part.data.byteLength, 0);
     appendLog(`Downloaded ${parts.length} firmware parts (${totalBytes.toLocaleString()} bytes).`);
 
