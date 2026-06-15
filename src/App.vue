@@ -242,6 +242,11 @@
             <v-window-item value="about">
               <AboutTab />
             </v-window-item>
+
+            <!-- SmartBed fork addition: link out to the fleet dashboard. -->
+            <v-window-item value="dashboard">
+              <FleetDashboardTab />
+            </v-window-item>
           </v-window>
         </v-card>
 
@@ -711,6 +716,8 @@ import FilesystemManagerTab from './components/FilesystemManagerTab.vue';
 import LittlefsManagerTab from './components/LittlefsManagerTab.vue';
 import NvsInspectorTab from './components/NvsInspectorTab.vue';
 import AboutTab from './components/AboutTab.vue';
+// SmartBed fork addition: companion fleet-dashboard link tab.
+import FleetDashboardTab from './components/FleetDashboardTab.vue';
 import PartitionsTab from './components/PartitionsTab.vue';
 import SessionLogTab from './components/SessionLogTab.vue';
 import SerialMonitorTab from './components/SerialMonitorTab.vue';
@@ -4333,6 +4340,13 @@ const navigationItems = computed(() => [
     title: t('navigation.about'),
     value: 'about',
     icon: 'mdi-information-box-outline',
+    disabled: false,
+  },
+  // SmartBed fork addition: jump to the companion fleet dashboard.
+  {
+    title: t('navigation.dashboard'),
+    value: 'dashboard',
+    icon: 'mdi-view-dashboard-outline',
     disabled: false,
   },
 ]);

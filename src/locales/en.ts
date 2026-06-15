@@ -17,6 +17,14 @@ const en = {
     console: 'Serial Monitor',
     log: 'Session Log',
     about: 'About',
+    dashboard: 'Fleet Dashboard',
+  },
+  dashboard: {
+    title: 'SmartBed Fleet Dashboard',
+    description:
+      'Open the SmartBed Fleet Dashboard to monitor registered devices, firmware versions, and online/offline status across the fleet.',
+    openButton: 'Open Fleet Dashboard',
+    hint: 'Opens in a new tab. Uses the same Cloudflare Access sign-in as this flasher.',
   },
   resources: {
     tutorial: 'Tutorial',
