@@ -109,6 +109,7 @@ const MANUFACTURERS: SmartBedManufacturer[] = [
   { slug: 'trimix_s4', label: 'Trimix S4', binName: 'TrimixBed' },
   { slug: 'theorem', label: 'Theorem (lift chair)', binName: 'TheoremBed' },
   { slug: 'linak_ble', label: 'LINAK BLE', binName: 'Linak_BLEBed' },
+  { slug: 'linak_ble2lin', label: 'LINAK BLE2LIN (bridge)', binName: 'Linak_BLE2LINBed' },
 ];
 
 const VERSION_LIST_LIMIT = 15;
