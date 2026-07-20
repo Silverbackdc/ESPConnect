@@ -110,6 +110,7 @@ const MANUFACTURERS: SmartBedManufacturer[] = [
   { slug: 'theorem', label: 'Theorem (lift chair)', binName: 'TheoremBed' },
   { slug: 'linak_ble', label: 'LINAK BLE', binName: 'Linak_BLEBed' },
   { slug: 'linak_ble2lin', label: 'LINAK BLE2LIN (bridge)', binName: 'Linak_BLE2LINBed' },
+  { slug: 'linak_abl', label: 'LINAK ABL (analogue bridge)', binName: 'Linak_ABLBed' },
 ];
 
 const VERSION_LIST_LIMIT = 15;
