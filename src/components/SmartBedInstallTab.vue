@@ -108,6 +108,7 @@ const MANUFACTURERS: SmartBedManufacturer[] = [
   { slug: 'richmat_hjc9', label: 'Richmat HJC9', binName: 'Richmat_HJC9Bed' },
   { slug: 'trimix_s4', label: 'Trimix S4', binName: 'TrimixBed' },
   { slug: 'theorem', label: 'Theorem (lift chair)', binName: 'TheoremBed' },
+  { slug: 'moto_cm310', label: 'MOTO CM310 (wired recliner)', binName: 'Moto_CM310Bed' },
   { slug: 'linak_ble', label: 'LINAK BLE', binName: 'Linak_BLEBed' },
   { slug: 'linak_ble2lin', label: 'LINAK BLE2LIN (bridge)', binName: 'Linak_BLE2LINBed' },
   { slug: 'linak_abl', label: 'LINAK ABL (analogue bridge)', binName: 'Linak_ABLBed' },
