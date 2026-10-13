@@ -99,6 +99,7 @@ import type {
 const MANUFACTURERS: SmartBedManufacturer[] = [
   { slug: 'timotion', label: 'TiMotion', binName: 'TiMotionBed' },
   { slug: 'jiecang', label: 'Jiecang', binName: 'JiecangBed' },
+  { slug: 'jiecang_uart', label: 'Jiecang JCB35R-AM (serial box)', binName: 'Jiecang_UARTBed' },
   { slug: 'duomat9', label: 'Duomat 9', binName: 'Duomat9Bed' },
   { slug: 'okin_cb24', label: 'Okin CB24', binName: 'Okin_CB24Bed' },
   { slug: 'linak', label: 'Linak (wired)', binName: 'LinakBed' },
