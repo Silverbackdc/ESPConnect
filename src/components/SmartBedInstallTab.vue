@@ -113,6 +113,7 @@ const MANUFACTURERS: SmartBedManufacturer[] = [
   { slug: 'linak_ble', label: 'LINAK BLE', binName: 'Linak_BLEBed' },
   { slug: 'linak_ble2lin', label: 'LINAK BLE2LIN (bridge)', binName: 'Linak_BLE2LINBed' },
   { slug: 'linak_abl', label: 'LINAK ABL (analogue bridge)', binName: 'Linak_ABLBed' },
+  { slug: 'ics3', label: 'Ilcon ICS3 (RJ50 handset port)', binName: 'ICS3Bed' },
 ];
 
 const VERSION_LIST_LIMIT = 15;
